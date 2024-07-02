@@ -1,8 +1,13 @@
 package com.example.springapi.api.controller;
 
 import com.example.springapi.api.dto.OrderDTO;
+import com.example.springapi.api.dto.ProductDTO;
 import com.example.springapi.publisher.RabbitMQProducer;
 import com.example.springapi.service.OrderService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +23,8 @@ public class OrderController {
     private final OrderService orderService;
     private RabbitMQProducer producer;
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(OrderController.class);
+
     @Autowired
     public OrderController(OrderService orderService,RabbitMQProducer producer){
         this.orderService = orderService;
@@ -28,6 +35,16 @@ public class OrderController {
     public ResponseEntity<String> sendMessage(@RequestParam("message") String message){
         producer.sendMessage(message);
         return ResponseEntity.ok("Message sent to RabbitMQ ...");
+    }
+
+    @GetMapping("/test1")
+    public ResponseEntity<String> getProduct(@RequestParam("id") String id){
+        LOGGER.info(String.format("test1 -> %s", "Message envoyé"));
+        String reply = producer.sendMessageWithReturn("ACTION_GET_PRODUCT:"+id);
+        LOGGER.info(String.format("test1 -> %s", "Message envoyé"));
+        //attendre retour et récupéré Product
+        
+        return ResponseEntity.ok("Retour reçu : "+reply);
     }
 
 
@@ -51,9 +68,20 @@ public class OrderController {
     }
 
     @PostMapping
-    public ResponseEntity<Void> postOrder(@RequestBody OrderDTO orderDTO) {
-        orderService.postOrder(orderDTO);
-        return new ResponseEntity<>(HttpStatus.CREATED);
+    public ResponseEntity<Void> postOrder(@RequestBody OrderDTO orderDTO) throws JsonProcessingException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        LOGGER.info(String.format("La commande -> %s", orderDTO));
+        String reply = producer.sendMessageWithReturn("ACTION_GET_PRODUCT:"+orderDTO.getIdProduct());
+        ProductDTO productDTO = objectMapper.readValue(reply, ProductDTO.class);
+        if (orderDTO.getQuantity() <= productDTO.getQuantity()) {
+            LOGGER.info(String.format("Creation Commande -> %s", orderDTO));
+            double total = productDTO.getPrice() * orderDTO.getQuantity();
+            orderDTO.setTotal(total);
+            orderService.postOrder(orderDTO);
+            producer.sendMessage("ACTION_BUY_PRODUCT:"+orderDTO.getIdProduct()+":"+orderDTO.getQuantity());
+            return new ResponseEntity<>(HttpStatus.CREATED);
+        }
+        return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
     }
 
     @PutMapping("/{id}")
