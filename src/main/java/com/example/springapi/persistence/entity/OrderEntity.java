@@ -1,5 +1,6 @@
 package com.example.springapi.persistence.entity;
 
+import com.example.springapi.api.dto.OrderDTO;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -14,4 +15,5 @@ public class OrderEntity {
     private int idCustomer;
     private int idProduct;
     private int quantity;
+
 }

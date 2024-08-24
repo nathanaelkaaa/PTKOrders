@@ -9,9 +9,13 @@ import com.example.springapi.persistence.entity.ProductEntity;
 import com.example.springapi.persistence.repository.CustomerRepository;
 import com.example.springapi.persistence.repository.OrderRepository;
 import com.example.springapi.persistence.repository.ProductRepository;
+import com.example.springapi.publisher.RabbitMQProducer;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -22,15 +26,19 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final CustomerRepository customerRepository;
+    private RabbitMQProducer producer;
+
+    ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
-    public OrderService(OrderRepository orderRepository, ProductRepository productRepository, CustomerRepository customerRepository) {
+    public OrderService(OrderRepository orderRepository, ProductRepository productRepository, CustomerRepository customerRepository, RabbitMQProducer producer) {
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
         this.customerRepository = customerRepository;
+        this.producer = producer;
     }
 
-    public Optional<OrderDTO> getOrder(Integer id) {
+    public Optional<OrderDTO> getOrder(Integer id) throws JsonProcessingException {
         Optional<OrderEntity> orderFromDB = orderRepository.getOrderEntityById(id);
         Optional<OrderDTO> orderDTO = orderFromDB.map(this::orderEntityMapper);
 
@@ -39,10 +47,37 @@ public class OrderService {
         return orderDTOWithTotal;
     }
 
-    public List<OrderDTO> getOrders() {
-        List<OrderEntity> ordersFromDB = orderRepository.findAll().stream().limit(10).collect(Collectors.toList());
+    public List<Optional<OrderDTO>> getOrders() throws JsonProcessingException {
+        List<OrderEntity> ordersFromDBList = orderRepository.findAll().stream().limit(10).collect(Collectors.toList());
 
-        return ordersFromDB.stream().map(this::orderEntityMapper).collect(Collectors.toList());
+        List<OrderDTO> orderDTOList = ordersFromDBList.stream()
+                .map(this::orderEntityMapper)
+                .collect(Collectors.toList());
+
+        List<Optional<OrderDTO>> orderDTOListWithTotal = new ArrayList<>();
+        for (OrderDTO orderDTO : orderDTOList) {
+            Optional<OrderDTO> order = setTotal(Optional.of(orderDTO));
+            orderDTOListWithTotal.add(order);
+        }
+
+        return orderDTOListWithTotal;
+    }
+
+    //Donne les 10 dernières commande d'un utilisateur via son id
+    public List<Optional<OrderDTO>> getCustomerOrders(Integer id) throws JsonProcessingException {
+        List<OrderEntity> ordersFromDBList = orderRepository.findAll().stream().filter(order -> order.getIdCustomer() == id).limit(10).collect(Collectors.toList());
+
+        List<OrderDTO> orderDTOList = ordersFromDBList.stream()
+                .map(this::orderEntityMapper)
+                .collect(Collectors.toList());
+
+        List<Optional<OrderDTO>> orderDTOListWithTotal = new ArrayList<>();
+        for (OrderDTO orderDTO : orderDTOList) {
+            Optional<OrderDTO> order = setTotal(Optional.of(orderDTO));
+            orderDTOListWithTotal.add(order);
+        }
+
+        return orderDTOListWithTotal;
     }
 
     public void postOrder(OrderDTO orderDTO) {
@@ -125,14 +160,11 @@ public class OrderService {
         return customerFromDB.map(this::customerEntityMapper);
     }
 
-    private Optional<OrderDTO> setTotal(Optional<OrderDTO> orderDTO) {
-
-        Optional<ProductDTO> productDTO = getProduct(orderDTO.get().getIdProduct());
-        double price = productDTO.get().getPrice();
-        double total = price * orderDTO.get().getTotal();
-        System.out.println(total);
+    private Optional<OrderDTO> setTotal(Optional<OrderDTO> orderDTO) throws JsonProcessingException {
+        String reply = producer.sendMessageWithReturn("ACTION_GET_PRODUCT:"+orderDTO.get().getIdProduct());
+        Optional<ProductDTO> productDTO = Optional.ofNullable(objectMapper.readValue(reply, ProductDTO.class));
+        double total = productDTO.get().getPrice() * orderDTO.get().getQuantity();
         orderDTO.get().setTotal(total);
-
         return orderDTO;
     }
 }

@@ -37,7 +37,16 @@ public class OrderController {
         return ResponseEntity.ok("Message sent to RabbitMQ ...");
     }
 
+    //TODO à supprimer ulterieurement
     @GetMapping("/test1")
+    public ResponseEntity<String> test1(@RequestParam("id") int id) throws JsonProcessingException {
+        Optional<OrderDTO> order = orderService.getOrder(id);
+        //orderService.getProduct(order);
+        //LOGGER.info(String.format("test1 -> %s", "Message envoyé"));
+        return ResponseEntity.ok("Retour reçu : "+order);
+    }
+
+    /*
     public ResponseEntity<String> getProduct(@RequestParam("id") String id){
         LOGGER.info(String.format("test1 -> %s", "Message envoyé"));
         String reply = producer.sendMessageWithReturn("ACTION_GET_PRODUCT:"+id);
@@ -45,11 +54,11 @@ public class OrderController {
         //attendre retour et récupéré Product
         
         return ResponseEntity.ok("Retour reçu : "+reply);
-    }
+    }*/
 
 
     @GetMapping("/{id}")
-    public ResponseEntity<OrderDTO> getOrder(@PathVariable int id){
+    public ResponseEntity<OrderDTO> getOrder(@PathVariable int id) throws JsonProcessingException {
         Optional<OrderDTO> order = orderService.getOrder(id);
 
         return order.map(orderDTO -> new ResponseEntity<>(orderDTO, HttpStatus.OK))
@@ -57,8 +66,8 @@ public class OrderController {
     }
 
     @GetMapping
-    public ResponseEntity<List<OrderDTO>> getOrders(){
-        List<OrderDTO> orders = orderService.getOrders();
+    public ResponseEntity<List<Optional<OrderDTO>>> getOrders() throws JsonProcessingException {
+        List<Optional<OrderDTO>> orders = orderService.getOrders();
 
         if (!orders.isEmpty()) {
             return new ResponseEntity<>(orders, HttpStatus.OK);
